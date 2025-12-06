@@ -1,0 +1,5 @@
+{
+  "name": "Inferno Survivor",
+  "description": "A fluid-dynamics based roguelike top-down shooter. Wield fire and fluid magic, upgrade your arsenal, and survive the endless hordes.",
+  "requestFramePermissions": []
+}
