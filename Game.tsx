@@ -1,12 +1,11 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { FluidSolver } from './services/FluidSolver';
 import { Player, Enemy, Projectile, XPGem, Particle, FluidType, Vector2 } from './types';
-import { FLUID_SIZE, FLUID_SCALE, WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLAYER_STATS, WEAPON_DEFINITIONS, AVAILABLE_UPGRADES } from './constants';
+import { WORLD_WIDTH, WORLD_HEIGHT, INITIAL_PLAYER_STATS, WEAPON_DEFINITIONS, AVAILABLE_UPGRADES } from './constants';
 import { UpgradeModal } from './components/UpgradeModal';
 import { HUD } from './components/HUD';
 import { GoogleGenAI } from "@google/genai";
 
-// We use refs for game state to avoid React re-render loops in the main loop
 export const Game: React.FC = () => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const fluidCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -32,7 +31,10 @@ export const Game: React.FC = () => {
   const projectilesRef = useRef<Projectile[]>([]);
   const gemsRef = useRef<XPGem[]>([]);
   const particlesRef = useRef<Particle[]>([]);
-  const fluidSolverRef = useRef<FluidSolver>(new FluidSolver(FLUID_SIZE, 0.0001, 0.0001, 0.1));
+  
+  // Fluid solver is now nullable until init
+  const fluidSolverRef = useRef<FluidSolver | null>(null);
+  
   const frameIdRef = useRef<number>(0);
   const lastTimeRef = useRef<number>(0);
   const scoreRef = useRef<number>(0);
@@ -58,7 +60,7 @@ export const Game: React.FC = () => {
 
   // Helpers
   const spawnEnemy = () => {
-    const edge = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
+    const edge = Math.floor(Math.random() * 4);
     let x = 0, y = 0;
     const padding = 50;
     
@@ -71,23 +73,23 @@ export const Game: React.FC = () => {
 
     const typeRoll = Math.random();
     let type: Enemy['type'] = 'chaser';
-    let hp = 20 + gameTimeRef.current * 0.5; // Scaling difficulty
-    let speed = 1; // Faster base speed
+    let hp = 20 + gameTimeRef.current * 0.8; 
+    let speed = 2.5; 
     let radius = 10;
-    let color = '#f87171'; // Red-400
+    let color = '#f87171'; 
 
     if (gameTimeRef.current > 60 && typeRoll > 0.8) {
         type = 'tank';
         hp *= 3;
-        speed = 1.5; // Faster tank
+        speed = 2.0; 
         radius = 18;
-        color = '#ef4444'; // Red-500
+        color = '#ef4444'; 
     } else if (gameTimeRef.current > 30 && typeRoll > 0.6) {
         type = 'shooter';
         hp *= 0.8;
-        speed = 3.5; // Faster shooter
+        speed = 4.5;
         radius = 8;
-        color = '#fca5a5'; // Red-300
+        color = '#fca5a5'; 
     }
 
     enemiesRef.current.push({
@@ -109,32 +111,25 @@ export const Game: React.FC = () => {
   };
 
   const createExplosion = (x: number, y: number, radius: number, type: FluidType) => {
-      // Add fluid
-      const gridX = Math.floor((x / WORLD_WIDTH) * FLUID_SIZE);
-      const gridY = Math.floor((y / WORLD_HEIGHT) * FLUID_SIZE);
-      const intensity = 2000; 
+      if (!fluidSolverRef.current) return;
+
+      const intensity = type === FluidType.FIRE ? 1.0 : 0.8;
+      const color = type === FluidType.FIRE ? {r: 2.0, g: 0.5, b: 0.1} : {r: 0.5, g: 0.1, b: 0.8};
       
-      const solver = fluidSolverRef.current;
-      // Adjusted radius for lower resolution grid (was 8, now 5)
-      const range = 5; 
-      for(let i = -range; i <= range; i++) {
-          for(let j = -range; j <= range; j++) {
-              if (i*i + j*j > range*range) continue;
-              
-              // Scale down intensity slightly as we cover more cells
-              solver.addDensity(gridX + i, gridY + j, intensity / (1 + (i*i + j*j)*0.5), type);
-              // Explode outwards velocity
-              solver.addVelocity(gridX + i, gridY + j, i * 40, j * 40);
-          }
+      // Multi-splat for bigger boom
+      for (let i=0; i<5; i++) {
+          const dx = (Math.random() - 0.5) * 50;
+          const dy = (Math.random() - 0.5) * 50;
+          fluidSolverRef.current.splat(x + dx*0.5, y + dy*0.5, dx*10, dy*10, color);
       }
 
       // Add particles
-      for(let i = 0; i < 8; i++) {
+      for(let i = 0; i < 15; i++) {
           const angle = Math.random() * Math.PI * 2;
-          const speed = Math.random() * 2 + 1;
+          const speed = Math.random() * 5 + 3;
           particlesRef.current.push({
               id: Math.random().toString(),
-              x, y, radius: Math.random() * 3 + 1,
+              x, y, radius: Math.random() * 3 + 2,
               color: type === FluidType.FIRE ? '#fbbf24' : '#a78bfa',
               vx: Math.cos(angle) * speed,
               vy: Math.sin(angle) * speed,
@@ -147,14 +142,12 @@ export const Game: React.FC = () => {
 
   const fireWeapon = (weapon: any, player: Player) => {
       if (weapon.currentCooldown > 0) return;
-
-      const solver = fluidSolverRef.current;
+      if (!fluidSolverRef.current) return;
 
       if (weapon.type === 'fireball') {
-          // Find closest enemy or mouse
+          // Target closest enemy
           let target = { x: mouseRef.current.x, y: mouseRef.current.y };
-          // For auto-aim:
-          let closestDist = 400; // range
+          let closestDist = 600; 
           let closestEnemy = null;
           for (const e of enemiesRef.current) {
               const d = Math.hypot(e.x - player.x, e.y - player.y);
@@ -166,7 +159,7 @@ export const Game: React.FC = () => {
           if (closestEnemy) target = { x: closestEnemy.x, y: closestEnemy.y };
 
           const angle = Math.atan2(target.y - player.y, target.x - player.x);
-          const speed = 11; // Increased projectile speed
+          const speed = 16; 
           
           projectilesRef.current.push({
               id: Math.random().toString(),
@@ -174,12 +167,12 @@ export const Game: React.FC = () => {
               y: player.y,
               vx: Math.cos(angle) * speed,
               vy: Math.sin(angle) * speed,
-              radius: 6,
+              radius: 8,
               color: '#f59e0b',
               damage: weapon.damage,
-              duration: 100,
+              duration: 180,
               fluidType: FluidType.FIRE,
-              fluidIntensity: 150,
+              fluidIntensity: .1, 
               penetration: 1,
               markedForDeletion: false
           });
@@ -187,63 +180,52 @@ export const Game: React.FC = () => {
       } 
       else if (weapon.type === 'flamethrower') {
           const angle = Math.atan2(mouseRef.current.y - player.y, mouseRef.current.x - player.x);
-          
-          // Inject Fluid Velocity directly in front of player
           const dirX = Math.cos(angle);
           const dirY = Math.sin(angle);
           
-          // Multiple injection points for cone effect
-          for(let i=1; i<=3; i++) {
-              const scatter = (Math.random() - 0.5) * 0.5;
-              const cellX = Math.floor(((player.x + dirX * 25) / WORLD_WIDTH) * FLUID_SIZE);
-              const cellY = Math.floor(((player.y + dirY * 25) / WORLD_HEIGHT) * FLUID_SIZE);
-              
-              // Adjusted injection for lower quality grid
-              for(let fx=-1; fx<=1; fx++) {
-                  for(let fy=-1; fy<=1; fy++) {
-                    if (Math.abs(fx) + Math.abs(fy) > 2) continue;
-                    solver.addDensity(cellX + fx, cellY + fy, 250, FluidType.FIRE);
-                    solver.addVelocity(cellX + fx, cellY + fy, (dirX + scatter) * 60, (dirY + scatter) * 60);
-                  }
-              }
-          }
+          // Fluid Stream
+          fluidSolverRef.current.splat(
+              player.x + dirX * 20, 
+              player.y + dirY * 20, 
+              dirX * 500, // High velocity
+              dirY * 500, 
+              {r: 2.0, g: 0.3, b: 0.1} // Bright Orange
+          );
           
-          // Create invisible damage hitbox
           projectilesRef.current.push({
               id: Math.random().toString(),
               x: player.x,
               y: player.y,
-              vx: Math.cos(angle) * 10,
-              vy: Math.sin(angle) * 10,
-              radius: 15, // larger hitbox
+              vx: Math.cos(angle) * 14,
+              vy: Math.sin(angle) * 14,
+              radius: 20, 
               color: 'transparent',
               damage: weapon.damage,
-              duration: 15, // short lived
+              duration: 15,
               fluidType: FluidType.FIRE,
               fluidIntensity: 0,
-              penetration: 999, // passes through
+              penetration: 999,
               markedForDeletion: false
           });
           weapon.currentCooldown = weapon.cooldown;
       }
       else if (weapon.type === 'nova') {
-          createExplosion(player.x, player.y, 100, FluidType.MAGIC);
-          // 360 projectiles
-          for(let i=0; i<8; i++) {
-              const angle = (i / 8) * Math.PI * 2;
+          createExplosion(player.x, player.y, 150, FluidType.MAGIC);
+          for(let i=0; i<16; i++) {
+              const angle = (i / 16) * Math.PI * 2;
                projectilesRef.current.push({
                   id: Math.random().toString(),
                   x: player.x,
                   y: player.y,
-                  vx: Math.cos(angle) * 7,
-                  vy: Math.sin(angle) * 7,
-                  radius: 5,
+                  vx: Math.cos(angle) * 10,
+                  vy: Math.sin(angle) * 10,
+                  radius: 6,
                   color: '#a78bfa',
                   damage: weapon.damage,
                   duration: 60,
                   fluidType: FluidType.MAGIC,
-                  fluidIntensity: 50,
-                  penetration: 5,
+                  fluidIntensity: 1,
+                  penetration: 8,
                   markedForDeletion: false
               });
           }
@@ -259,7 +241,6 @@ export const Game: React.FC = () => {
         p.nextLevelXp = Math.floor(p.nextLevelXp * 1.2);
         setPaused(true);
         
-        // Pick 3 random upgrades
         const shuffled = [...AVAILABLE_UPGRADES].sort(() => 0.5 - Math.random());
         setLevelUpOptions(shuffled.slice(0, 3));
     }
@@ -278,12 +259,9 @@ export const Game: React.FC = () => {
         return;
     }
 
-    const dt = (time - lastTimeRef.current) / 1000; // seconds
+    const dt = Math.min((time - lastTimeRef.current) / 1000, 0.05); // Cap dt
     lastTimeRef.current = time;
     
-    // Limits
-    if (dt > 0.1) { frameIdRef.current = requestAnimationFrame(loop); return; } // Skip large lag spikes
-
     const player = playerRef.current;
     const solver = fluidSolverRef.current;
 
@@ -300,45 +278,31 @@ export const Game: React.FC = () => {
         player.x += (dx / len) * player.speed;
         player.y += (dy / len) * player.speed;
         
-        // Bounds
         player.x = Math.max(player.radius, Math.min(WORLD_WIDTH - player.radius, player.x));
         player.y = Math.max(player.radius, Math.min(WORLD_HEIGHT - player.radius, player.y));
 
-        // Player movement affects fluid (trail)
-        const cellX = Math.floor((player.x / WORLD_WIDTH) * FLUID_SIZE);
-        const cellY = Math.floor((player.y / WORLD_HEIGHT) * FLUID_SIZE);
-        // Inject into smaller area for better trail in low res
-        solver.addVelocity(cellX, cellY, dx * 5, dy * 5); 
+        if (solver) {
+            solver.splat(player.x, player.y, dx * 100, dy * 100, {r: 0.1, g: 0.1, b: 0.1});
+        }
     }
 
-    // Weapons
     player.weapons.forEach(w => {
         if (w.currentCooldown > 0) w.currentCooldown -= 1;
         fireWeapon(w, player);
     });
 
     // --- 2. Enemy Spawning & Logic ---
-    // Spawn rate increases with time
-    const spawnRate = Math.max(0.01, 0.05 - (enemiesRef.current.length * 0.001)); 
-    if (Math.random() < spawnRate && enemiesRef.current.length < 100) spawnEnemy();
+    const spawnRate = Math.max(0.01, 0.05 - (enemiesRef.current.length * 0.0002)); 
+    if (Math.random() < spawnRate && enemiesRef.current.length < 200) spawnEnemy();
 
     enemiesRef.current.forEach(e => {
-        // Move towards player
         const angle = Math.atan2(player.y - e.y, player.x - e.x);
         e.x += Math.cos(angle) * e.speed;
         e.y += Math.sin(angle) * e.speed;
 
-        // Collision with player
         const dist = Math.hypot(player.x - e.x, player.y - e.y);
         if (dist < player.radius + e.radius) {
-            player.hp -= 0.5; // Damage per frame overlap
-        }
-
-        // Fluid interaction (optional: enemies disturb smoke)
-        if (Math.random() < 0.1) {
-            const cx = Math.floor((e.x / WORLD_WIDTH) * FLUID_SIZE);
-            const cy = Math.floor((e.y / WORLD_HEIGHT) * FLUID_SIZE);
-            solver.addVelocity(cx, cy, Math.cos(angle)*2, Math.sin(angle)*2);
+            player.hp -= 0.5;
         }
     });
 
@@ -353,17 +317,25 @@ export const Game: React.FC = () => {
         p.duration -= 1;
         if (p.duration <= 0) p.markedForDeletion = true;
         
-        // Fluid Trail
-        const cellX = Math.floor((p.x / WORLD_WIDTH) * FLUID_SIZE);
-        const cellY = Math.floor((p.y / WORLD_HEIGHT) * FLUID_SIZE);
-        if (Math.random() > 0.3) {
-            // Add density for trail (FIRE)
-            // The solver will handle the Fire -> Smoke transition
-            solver.addDensity(cellX, cellY, p.fluidIntensity, p.fluidType);
+        if (solver) {
+            if (p.fluidType === FluidType.FIRE) {
+                // Fireball head (Bright Orange)
+                solver.splat(p.x, p.y, p.vx * 20, p.vy * 20, {r: 2.0, g: 0.4, b: 0.05});
+                
+                // Smoke trail (Grey, slightly behind)
+                // Offset the smoke slightly opposite to velocity
+                const smokeX = p.x - p.vx * 3;
+                const smokeY = p.y - p.vy * 3;
+                
+                // Splat smoke with less velocity inheritance so it "drags" behind
+                if (Math.random() > 0.3) {
+                     solver.splat(smokeX + (Math.random()-0.5)*10, smokeY + (Math.random()-0.5)*10, p.vx * 5, p.vy * 5, {r: 0.2, g: 0.2, b: 0.25});
+                }
+            } else if (p.fluidType === FluidType.MAGIC) {
+                solver.splat(p.x, p.y, p.vx * 15, p.vy * 15, {r: 0.1, g: 0.0, b: 2.0});
+            }
         }
-        solver.addVelocity(cellX, cellY, p.vx * 2, p.vy * 2);
 
-        // Enemy Hit
         for (const e of enemiesRef.current) {
             if (p.markedForDeletion) break;
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
@@ -372,11 +344,8 @@ export const Game: React.FC = () => {
                 p.penetration--;
                 if (p.penetration <= 0) {
                     p.markedForDeletion = true;
-                    // Impact fluid effect
-                    createExplosion(p.x, p.y, 25, p.fluidType);
+                    createExplosion(p.x, p.y, 40, p.fluidType);
                 }
-                
-                // Knockback enemy
                 e.x += p.vx * 1.5;
                 e.y += p.vy * 1.5;
             }
@@ -384,27 +353,24 @@ export const Game: React.FC = () => {
     });
 
     // --- 4. Cleanup & XP ---
-    // Dead Enemies
     enemiesRef.current = enemiesRef.current.filter(e => {
         if (e.hp <= 0) {
-            spawnGem(e.x, e.y, 10); // Standard XP
-            createExplosion(e.x, e.y, 35, FluidType.SMOKE); // Death poof (bigger)
+            spawnGem(e.x, e.y, 10);
+            createExplosion(e.x, e.y, 30, FluidType.SMOKE); 
             scoreRef.current += 1;
             return false;
         }
         return true;
     });
 
-    // Projectiles
     projectilesRef.current = projectilesRef.current.filter(p => !p.markedForDeletion && 
-        p.x > -50 && p.x < WORLD_WIDTH + 50 && p.y > -50 && p.y < WORLD_HEIGHT + 50);
+        p.x > -100 && p.x < WORLD_WIDTH + 100 && p.y > -100 && p.y < WORLD_HEIGHT + 100);
 
-    // Gems
     gemsRef.current.forEach(g => {
         const dist = Math.hypot(player.x - g.x, player.y - g.y);
-        if (dist < 100) { // Magnet range
-            g.x += (player.x - g.x) * 0.1;
-            g.y += (player.y - g.y) * 0.1;
+        if (dist < 150) {
+            g.x += (player.x - g.x) * 0.15;
+            g.y += (player.y - g.y) * 0.15;
         }
         if (dist < player.radius + g.radius) {
             player.xp += g.value;
@@ -414,55 +380,25 @@ export const Game: React.FC = () => {
     });
     gemsRef.current = gemsRef.current.filter(g => !g.markedForDeletion);
 
-    // Particles
     particlesRef.current.forEach(p => {
         p.x += p.vx;
         p.y += p.vy;
-        p.life -= 0.02;
-        p.vx *= 0.95;
-        p.vy *= 0.95;
+        p.life -= 0.03;
+        p.vx *= 0.92;
+        p.vy *= 0.92;
     });
     particlesRef.current = particlesRef.current.filter(p => p.life > 0);
 
+    // --- 5. Fluid Update ---
+    if (solver) {
+        // Step physics
+        solver.update(0.016); // Fixed dt for stability
+    }
 
-    // --- 5. Step Fluid ---
-    solver.step();
-
-    // --- 6. Rendering ---
+    // --- 6. Game Rendering ---
     const ctx = canvasRef.current?.getContext('2d');
-    const fluidCtx = fluidCanvasRef.current?.getContext('2d');
-
-    if (ctx && fluidCtx) {
-        // Clear main canvas
-        ctx.fillStyle = '#111';
-        ctx.fillRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-
-        // Draw Fluid
-        const imgData = fluidCtx.createImageData(FLUID_SIZE, FLUID_SIZE);
-        const data = imgData.data;
-        for (let i = 0; i < FLUID_SIZE * FLUID_SIZE; i++) {
-            // Visualize density
-            const r = Math.min(255, solver.densityR[i] * 255);
-            const g = Math.min(255, solver.densityG[i] * 255);
-            const b = Math.min(255, solver.densityB[i] * 255);
-            
-            // Adjust alpha logic for better visibility of smoke
-            const maxVal = Math.max(r, g, b);
-            const a = Math.min(255, maxVal * 1.5); // Boost opacity
-            
-            data[i * 4] = r;
-            data[i * 4 + 1] = g;
-            data[i * 4 + 2] = b;
-            data[i * 4 + 3] = a; 
-        }
-        fluidCtx.putImageData(imgData, 0, 0);
-        
-        // Draw fluid scaled up to main canvas
-        ctx.save();
-        ctx.globalCompositeOperation = 'screen'; // Additive blending
-        ctx.filter = 'blur(4px)'; // Smooth out pixels
-        ctx.drawImage(fluidCanvasRef.current!, 0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-        ctx.restore();
+    if (ctx) {
+        ctx.clearRect(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
 
         // Draw Gems
         ctx.fillStyle = '#60a5fa';
@@ -470,6 +406,10 @@ export const Game: React.FC = () => {
             ctx.beginPath();
             ctx.arc(g.x, g.y, g.radius, 0, Math.PI * 2);
             ctx.fill();
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = '#60a5fa';
+            ctx.fill();
+            ctx.shadowBlur = 0;
         });
 
         // Draw Enemies
@@ -478,10 +418,11 @@ export const Game: React.FC = () => {
             ctx.beginPath();
             ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
             ctx.fill();
-            // Enemy outline
-            ctx.strokeStyle = '#000';
-            ctx.lineWidth = 2;
-            ctx.stroke();
+            // Eyes
+            ctx.fillStyle = 'black';
+            ctx.beginPath();
+            ctx.arc(e.x + Math.cos(gameTimeRef.current)*2, e.y + Math.sin(gameTimeRef.current)*2, e.radius * 0.3, 0, Math.PI * 2);
+            ctx.fill();
         });
 
         // Draw Projectiles
@@ -491,6 +432,10 @@ export const Game: React.FC = () => {
             ctx.beginPath();
             ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
             ctx.fill();
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = p.color;
+            ctx.fill();
+            ctx.shadowBlur = 0;
         });
 
         // Draw Particles
@@ -508,19 +453,23 @@ export const Game: React.FC = () => {
         ctx.beginPath();
         ctx.arc(player.x, player.y, player.radius, 0, Math.PI * 2);
         ctx.fill();
-        // Direction Indicator
+        ctx.shadowBlur = 10;
+        ctx.shadowColor = 'white';
+        ctx.fill();
+        ctx.shadowBlur = 0;
+        
+        // Gun
         const angle = Math.atan2(mouseRef.current.y - player.y, mouseRef.current.x - player.x);
         ctx.strokeStyle = '#fbbf24';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 4;
         ctx.beginPath();
         ctx.moveTo(player.x, player.y);
-        ctx.lineTo(player.x + Math.cos(angle)*20, player.y + Math.sin(angle)*20);
+        ctx.lineTo(player.x + Math.cos(angle)*25, player.y + Math.sin(angle)*25);
         ctx.stroke();
     }
 
-    // --- 7. Update UI State (throttled/every frame) ---
     gameTimeRef.current += dt;
-    if (frameIdRef.current % 5 === 0) { // Update UI less frequently
+    if (frameIdRef.current % 4 === 0) {
         setUiState({
             hp: player.hp,
             maxHp: player.maxHp,
@@ -536,6 +485,18 @@ export const Game: React.FC = () => {
     frameIdRef.current = requestAnimationFrame(loop);
   }, [paused, gameOver]);
 
+  // Init Fluid Solver
+  useEffect(() => {
+    if (fluidCanvasRef.current) {
+        try {
+            fluidSolverRef.current = new FluidSolver(fluidCanvasRef.current);
+            console.log("WebGL Fluid Solver Initialized");
+        } catch (e) {
+            console.error("Failed to init WebGL Fluid Solver", e);
+        }
+    }
+  }, []);
+
   // Event Listeners
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => keysRef.current[e.key.toLowerCase()] = true;
@@ -549,7 +510,6 @@ export const Game: React.FC = () => {
     window.addEventListener('keyup', handleKeyUp);
     window.addEventListener('mousemove', handleMouseMove);
 
-    // Start Loop
     lastTimeRef.current = performance.now();
     frameIdRef.current = requestAnimationFrame(loop);
 
@@ -563,26 +523,22 @@ export const Game: React.FC = () => {
 
   return (
     <div className="relative w-screen h-screen bg-black overflow-hidden select-none">
-      {/* Hidden canvas for fluid simulation */}
       <canvas 
         ref={fluidCanvasRef} 
-        width={FLUID_SIZE} 
-        height={FLUID_SIZE} 
-        className="hidden"
+        width={WORLD_WIDTH} 
+        height={WORLD_HEIGHT} 
+        className="absolute inset-0 w-full h-full"
       />
       
-      {/* Main Game Canvas */}
       <canvas 
         ref={canvasRef} 
         width={WORLD_WIDTH} 
         height={WORLD_HEIGHT}
-        className="block"
+        className="absolute inset-0 block"
       />
 
-      {/* UI Overlay */}
       <HUD player={uiState} time={uiState.time} score={uiState.score} />
 
-      {/* Menus */}
       {paused && levelUpOptions.length > 0 && (
           <UpgradeModal upgrades={levelUpOptions} onSelect={handleUpgradeSelect} />
       )}
@@ -600,9 +556,8 @@ export const Game: React.FC = () => {
           </div>
       )}
       
-      {/* Start Hint */}
       {uiState.time < 5 && (
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/50 text-center pointer-events-none">
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white/50 text-center pointer-events-none z-10">
               <p className="text-xl">WASD to Move</p>
               <p className="text-xl">Mouse to Aim</p>
               <p className="text-sm mt-2">Collect Blue Gems to Level Up</p>
