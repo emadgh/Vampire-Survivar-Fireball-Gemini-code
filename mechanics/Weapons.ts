@@ -11,7 +11,8 @@ export const fireWeapon = (
     fluidSolver: FluidSolver | null,
     particles: Particle[],
     mousePos: Vector2,
-    gameTime: number
+    gameTime: number,
+    tick: number
 ) => {
     // Void Orb is passive, handles its own rotation logic inside Game loop rendering really, 
     // but here we can manage collision or projectile spawning if they shoot.
@@ -51,8 +52,14 @@ export const fireWeapon = (
             p.duration = 999999; 
             
             // Trail
-            if (fluidSolver && Math.random() > 0.5) {
-                 fluidSolver.splat(p.x, p.y, Math.cos(angle)*10, Math.sin(angle)*10, {r: 0.5, g: 0.0, b: 1.0});
+            if (fluidSolver && Math.random() < 0.5 * tick) {
+                 fluidSolver.splat(
+                     p.x, 
+                     p.y, 
+                     Math.cos(angle) * 10 * tick, 
+                     Math.sin(angle) * 10 * tick, 
+                     {r: 0.5 * tick, g: 0.0, b: 1.0 * tick}
+                );
             }
         });
         return; // Void orbs are managed differently
@@ -104,9 +111,9 @@ export const fireWeapon = (
         fluidSolver.splat(
             player.x + dirX * 20, 
             player.y + dirY * 20, 
-            dirX * 500, // High velocity
-            dirY * 500, 
-            {r: 2.0, g: 0.3, b: 0.1} // Bright Orange
+            dirX * 500 * tick, // Scaled by tick for consistency
+            dirY * 500 * tick, 
+            {r: 2.0 * tick, g: 0.3 * tick, b: 0.1 * tick} // Scaled brightness
         );
         
         projectiles.push({

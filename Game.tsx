@@ -113,6 +113,7 @@ export const Game: React.FC = () => {
 
     const dt = Math.min((time - lastTimeRef.current) / 1000, 0.05); // Cap dt
     lastTimeRef.current = time;
+    const tick = dt * 60; // Normalize to 60 FPS (1.0 = 60fps)
     
     const player = playerRef.current;
     const solver = fluidSolverRef.current;
@@ -127,14 +128,20 @@ export const Game: React.FC = () => {
 
     if (dx !== 0 || dy !== 0) {
         const len = Math.hypot(dx, dy);
-        player.x += (dx / len) * player.speed;
-        player.y += (dy / len) * player.speed;
+        player.x += (dx / len) * player.speed * tick;
+        player.y += (dy / len) * player.speed * tick;
         
         player.x = Math.max(player.radius, Math.min(WORLD_WIDTH - player.radius, player.x));
         player.y = Math.max(player.radius, Math.min(WORLD_HEIGHT - player.radius, player.y));
 
         if (solver) {
-            solver.splat(player.x, player.y, dx * 100, dy * 100, {r: 0.1, g: 0.1, b: 0.1});
+            solver.splat(
+                player.x, 
+                player.y, 
+                dx * 100 * tick, 
+                dy * 100 * tick, 
+                {r: 0.1 * tick, g: 0.1 * tick, b: 0.1 * tick}
+            );
         }
     }
 
@@ -142,8 +149,11 @@ export const Game: React.FC = () => {
     player.weapons = player.weapons.filter(w => !w.expiresAt || w.expiresAt > gameTimeRef.current);
 
     player.weapons.forEach(w => {
-        if (w.currentCooldown > 0) w.currentCooldown -= 1;
-        fireWeapon(w, player, projectilesRef.current, enemiesRef.current, solver, particlesRef.current, mouseRef.current, gameTimeRef.current);
+        if (w.currentCooldown > 0) w.currentCooldown -= tick;
+        fireWeapon(
+            w, player, projectilesRef.current, enemiesRef.current, 
+            solver, particlesRef.current, mouseRef.current, gameTimeRef.current, tick
+        );
     });
 
     // Handle Void Orbs cleanup (remove projectiles if weapon gone)
@@ -156,8 +166,8 @@ export const Game: React.FC = () => {
 
     enemiesRef.current.forEach(e => {
         const angle = Math.atan2(player.y - e.y, player.x - e.x);
-        e.x += Math.cos(angle) * e.speed;
-        e.y += Math.sin(angle) * e.speed;
+        e.x += Math.cos(angle) * e.speed * tick;
+        e.y += Math.sin(angle) * e.speed * tick;
 
         const dist = Math.hypot(player.x - e.x, player.y - e.y);
         if (dist < player.radius + e.radius) {
@@ -174,28 +184,49 @@ export const Game: React.FC = () => {
         // Void orbs handled in fireWeapon
         if (p.id.startsWith('orb_')) return;
 
-        p.x += p.vx;
-        p.y += p.vy;
-        p.duration -= 1;
+        p.x += p.vx * tick;
+        p.y += p.vy * tick;
+        p.duration -= tick;
         if (p.duration <= 0) p.markedForDeletion = true;
         
         if (solver) {
             if (p.fluidType === FluidType.FIRE) {
                 // Fireball head (Bright Orange)
-                solver.splat(p.x, p.y, p.vx * 20, p.vy * 20, {r: 2.0, g: 0.4, b: 0.05});
+                solver.splat(
+                    p.x, p.y, 
+                    p.vx * 20 * tick, 
+                    p.vy * 20 * tick, 
+                    {r: 2.0 * tick, g: 0.4 * tick, b: 0.05 * tick}
+                );
                 
                 // Smoke trail (Grey, slightly behind)
                 const smokeX = p.x - p.vx * 3;
                 const smokeY = p.y - p.vy * 3;
                 
-                if (Math.random() > 0.3) {
-                     solver.splat(smokeX + (Math.random()-0.5)*10, smokeY + (Math.random()-0.5)*10, p.vx * 5, p.vy * 5, {r: 0.2, g: 0.2, b: 0.25});
+                if (Math.random() < 0.3 * tick) { // Scaled probability
+                     solver.splat(
+                         smokeX + (Math.random()-0.5)*10, 
+                         smokeY + (Math.random()-0.5)*10, 
+                         p.vx * 5 * tick, 
+                         p.vy * 5 * tick, 
+                         {r: 0.2 * tick, g: 0.2 * tick, b: 0.25 * tick}
+                    );
                 }
             } else if (p.fluidType === FluidType.SMOKE) {
                 // For bombs
-                 solver.splat(p.x, p.y, p.vx * 5, p.vy * 5, {r: 0.3, g: 0.3, b: 0.3});
+                 solver.splat(
+                     p.x, p.y, 
+                     p.vx * 5 * tick, 
+                     p.vy * 5 * tick, 
+                     {r: 0.3 * tick, g: 0.3 * tick, b: 0.3 * tick}
+                );
             } else if (p.fluidType === FluidType.MAGIC) {
-                solver.splat(p.x, p.y, p.vx * 15, p.vy * 15, {r: 0.1, g: 0.0, b: 2.0});
+                solver.splat(
+                    p.x, p.y, 
+                    p.vx * 15 * tick, 
+                    p.vy * 15 * tick, 
+                    {r: 0.1 * tick, g: 0.0, b: 2.0 * tick}
+                );
             }
         }
 
@@ -212,7 +243,7 @@ export const Game: React.FC = () => {
                 
                 // Knockback (Bosses resist it)
                 if (e.type !== 'boss') {
-                    e.x += p.vx * 1.5;
+                    e.x += p.vx * 1.5; // Impulse knockback is distance based, mostly ok without tick for immediate impact
                     e.y += p.vy * 1.5;
                 }
             }
@@ -249,8 +280,8 @@ export const Game: React.FC = () => {
     gemsRef.current.forEach(g => {
         const dist = Math.hypot(player.x - g.x, player.y - g.y);
         if (dist < 150) {
-            g.x += (player.x - g.x) * 0.15;
-            g.y += (player.y - g.y) * 0.15;
+            g.x += (player.x - g.x) * 0.15 * tick;
+            g.y += (player.y - g.y) * 0.15 * tick;
         }
         if (dist < player.radius + g.radius) {
             player.xp += g.value;
@@ -261,18 +292,18 @@ export const Game: React.FC = () => {
     gemsRef.current = gemsRef.current.filter(g => !g.markedForDeletion);
 
     particlesRef.current.forEach(p => {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.life -= 0.03;
-        p.vx *= 0.92;
-        p.vy *= 0.92;
+        p.x += p.vx * tick;
+        p.y += p.vy * tick;
+        p.life -= 0.03 * tick;
+        p.vx *= (1 - 0.08 * tick); // Drag
+        p.vy *= (1 - 0.08 * tick);
     });
     particlesRef.current = particlesRef.current.filter(p => p.life > 0);
 
     // --- 5. Fluid Update ---
     if (solver) {
-        // Step physics
-        solver.update(0.016); // Fixed dt for stability
+        // Step physics with real time delta for speed independence
+        solver.update(dt); 
     }
 
     // --- 6. Game Rendering ---
