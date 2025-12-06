@@ -1,17 +1,18 @@
-import { FluidType } from '../types';
+
+import { FLUID_CONFIG } from '../config/fluid';
 
 export class FluidSolver {
   canvas: HTMLCanvasElement;
   gl: WebGL2RenderingContext | WebGLRenderingContext;
   
-  // Configuration
-  simRes: number = 128; // Resolution of simulation grid (lower = faster, larger = more detail)
-  dyeRes: number = 512; // Resolution of the visual dye (high quality)
-  densityDissipation: number = 0.992; // How long smoke stays (closer to 1 = longer)
-  velocityDissipation: number = 0.99;
-  pressure: number = 0.8;
-  curl: number = 30; // Vorticity amount (swirliness)
-  splatRadius: number = 0.01;
+  // Configuration from FLUID_CONFIG
+  simRes: number = FLUID_CONFIG.SIM_RESOLUTION;
+  dyeRes: number = FLUID_CONFIG.DYE_RESOLUTION;
+  densityDissipation: number = FLUID_CONFIG.DENSITY_DISSIPATION;
+  velocityDissipation: number = FLUID_CONFIG.VELOCITY_DISSIPATION;
+  pressure: number = FLUID_CONFIG.PRESSURE;
+  curl: number = FLUID_CONFIG.CURL;
+  splatRadius: number = FLUID_CONFIG.SPLAT_RADIUS;
 
   // GL Objects
   programs: Record<string, WebGLProgram> = {};
@@ -62,21 +63,6 @@ export class FluidSolver {
             vR = vUv + vec2(texelSize.x, 0.0);
             vT = vUv + vec2(0.0, texelSize.y);
             vB = vUv - vec2(0.0, texelSize.y);
-            gl_Position = vec4(aPosition, 0.0, 1.0);
-        }
-    `);
-
-    const blurVertexShader = this.compileShader(gl.VERTEX_SHADER, `
-        precision highp float;
-        attribute vec2 aPosition;
-        varying vec2 vUv;
-        varying vec2 vL;
-        varying vec2 vR;
-        void main () {
-            vUv = aPosition * 0.5 + 0.5;
-            float offset = 1.0 / 512.0;
-            vL = vUv - vec2(offset, 0.0);
-            vR = vUv + vec2(offset, 0.0);
             gl_Position = vec4(aPosition, 0.0, 1.0);
         }
     `);
@@ -481,8 +467,7 @@ export class FluidSolver {
       gl.uniform1i(gl.getUniformLocation(this.programs.advection, 'uVelocity'), this.fbo.velocity.read.attach(0));
       gl.uniform1i(gl.getUniformLocation(this.programs.advection, 'uSource'), this.fbo.density.read.attach(1));
       gl.uniform1f(gl.getUniformLocation(this.programs.advection, 'dt'), dt);
-      // Adjusted dissipation to be stronger (0.985) so fluid stays but doesn't fill screen forever
-      gl.uniform1f(gl.getUniformLocation(this.programs.advection, 'dissipation'), 0.985); 
+      gl.uniform1f(gl.getUniformLocation(this.programs.advection, 'dissipation'), this.densityDissipation); 
       this.blit(this.fbo.density.write.fbo);
       this.fbo.density.swap();
 
