@@ -51,7 +51,7 @@ export const spawnEnemy = (
     
     // Default stats
     let hp = 15 * difficultyScale;
-    let speed = 2.0 + (gameTime / 300); // Slowly get faster
+    let speed = (2.2 + (gameTime / 400)) * (0.9 + Math.random() * 0.2); // Random variance
     let radius = 12;
     let color = '#f87171'; // Red-400
     let damage = 10;
@@ -94,10 +94,10 @@ export const manageEnemySpawning = (
 ) => {
     // 1. Difficulty Caps
     // Cap increases with time and level
-    const maxEnemies = 50 + (player.level * 2) + (gameTime / 5);
+    const maxEnemies = 80 + (player.level * 4) + (gameTime / 3);
     
     // Allow going over cap slightly for bosses or forced spawns, but generally hold back
-    if (enemies.length >= Math.min(maxEnemies, 300)) return;
+    if (enemies.length >= Math.min(maxEnemies, 350)) return;
 
     // 2. Wave Management Logic
     if (!waveState.active) {
@@ -107,7 +107,7 @@ export const manageEnemySpawning = (
         } else {
             // NORMAL PHASE
             // Spawn rate increases slowly
-            const spawnChance = 0.02 + (gameTime * 0.0005) + (player.level * 0.002);
+            const spawnChance = 0.04 + (gameTime * 0.0008) + (player.level * 0.003);
             if (Math.random() < spawnChance) {
                 spawnEnemy(enemies, player, gameTime);
             }

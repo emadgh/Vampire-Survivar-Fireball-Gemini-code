@@ -16,7 +16,7 @@ export const WEAPON_DEFINITIONS: Record<string, Weapon> = {
     name: 'Void Orbs',
     cooldown: 0, // Passive rotation
     currentCooldown: 0,
-    damage: 15,
+    damage: 20,
     type: 'void_orb',
     level: 1,
   },
@@ -25,7 +25,7 @@ export const WEAPON_DEFINITIONS: Record<string, Weapon> = {
     name: 'Frost Nova',
     cooldown: 120,
     currentCooldown: 0,
-    damage: 25,
+    damage: 45,
     type: 'nova',
     level: 1,
   },
@@ -33,18 +33,18 @@ export const WEAPON_DEFINITIONS: Record<string, Weapon> = {
   flamethrower: {
     id: 'flamethrower',
     name: 'Flamethrower',
-    cooldown: 2, 
+    cooldown: 4, 
     currentCooldown: 0,
-    damage: 6,
+    damage: 15,
     type: 'flamethrower',
     level: 1,
   },
   cluster_bomb: {
     id: 'cluster_bomb',
     name: 'Cluster Bomb',
-    cooldown: 10,
+    cooldown: 30,
     currentCooldown: 0,
-    damage: 60,
+    damage: 40,
     type: 'cluster_bomb',
     level: 1
   }

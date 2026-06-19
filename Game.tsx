@@ -90,7 +90,7 @@ export const Game: React.FC = () => {
     if (p.xp >= p.nextLevelXp) {
         p.xp -= p.nextLevelXp;
         p.level++;
-        p.nextLevelXp = Math.floor(p.nextLevelXp * 1.2);
+        p.nextLevelXp = Math.floor(p.nextLevelXp * 1.35);
         setPaused(true);
         
         const shuffled = [...AVAILABLE_UPGRADES].sort(() => 0.5 - Math.random());
@@ -181,52 +181,53 @@ export const Game: React.FC = () => {
 
     // --- 3. Projectile Logic ---
     projectilesRef.current.forEach(p => {
-        // Void orbs handled in fireWeapon
-        if (p.id.startsWith('orb_')) return;
+        const isOrb = p.id.startsWith('orb_');
 
-        p.x += p.vx * tick;
-        p.y += p.vy * tick;
-        p.duration -= tick;
-        if (p.duration <= 0) p.markedForDeletion = true;
-        
-        if (solver) {
-            if (p.fluidType === FluidType.FIRE) {
-                // Fireball head (Bright Orange)
-                solver.splat(
-                    p.x, p.y, 
-                    p.vx * 20 * tick, 
-                    p.vy * 20 * tick, 
-                    {r: 2.0 * tick, g: 0.4 * tick, b: 0.05 * tick}
-                );
-                
-                // Smoke trail (Grey, slightly behind)
-                const smokeX = p.x - p.vx * 3;
-                const smokeY = p.y - p.vy * 3;
-                
-                if (Math.random() < 0.3 * tick) { // Scaled probability
+        if (!isOrb) {
+            p.x += p.vx * tick;
+            p.y += p.vy * tick;
+            p.duration -= tick;
+            if (p.duration <= 0) p.markedForDeletion = true;
+            
+            if (solver) {
+                if (p.fluidType === FluidType.FIRE) {
+                    // Fireball head (Bright Orange)
+                    solver.splat(
+                        p.x, p.y, 
+                        p.vx * 20 * tick, 
+                        p.vy * 20 * tick, 
+                        {r: 2.0 * tick, g: 0.4 * tick, b: 0.05 * tick}
+                    );
+                    
+                    // Smoke trail (Grey, slightly behind)
+                    const smokeX = p.x - p.vx * 3;
+                    const smokeY = p.y - p.vy * 3;
+                    
+                    if (Math.random() < 0.3 * tick) { // Scaled probability
+                         solver.splat(
+                             smokeX + (Math.random()-0.5)*10, 
+                             smokeY + (Math.random()-0.5)*10, 
+                             p.vx * 5 * tick, 
+                             p.vy * 5 * tick, 
+                             {r: 0.2 * tick, g: 0.2 * tick, b: 0.25 * tick}
+                        );
+                    }
+                } else if (p.fluidType === FluidType.SMOKE) {
+                    // For bombs
                      solver.splat(
-                         smokeX + (Math.random()-0.5)*10, 
-                         smokeY + (Math.random()-0.5)*10, 
+                         p.x, p.y, 
                          p.vx * 5 * tick, 
                          p.vy * 5 * tick, 
-                         {r: 0.2 * tick, g: 0.2 * tick, b: 0.25 * tick}
+                         {r: 0.3 * tick, g: 0.3 * tick, b: 0.3 * tick}
+                    );
+                } else if (p.fluidType === FluidType.MAGIC) {
+                    solver.splat(
+                        p.x, p.y, 
+                        p.vx * 15 * tick, 
+                        p.vy * 15 * tick, 
+                        {r: 0.1 * tick, g: 0.0, b: 2.0 * tick}
                     );
                 }
-            } else if (p.fluidType === FluidType.SMOKE) {
-                // For bombs
-                 solver.splat(
-                     p.x, p.y, 
-                     p.vx * 5 * tick, 
-                     p.vy * 5 * tick, 
-                     {r: 0.3 * tick, g: 0.3 * tick, b: 0.3 * tick}
-                );
-            } else if (p.fluidType === FluidType.MAGIC) {
-                solver.splat(
-                    p.x, p.y, 
-                    p.vx * 15 * tick, 
-                    p.vy * 15 * tick, 
-                    {r: 0.1 * tick, g: 0.0, b: 2.0 * tick}
-                );
             }
         }
 
@@ -234,17 +235,24 @@ export const Game: React.FC = () => {
             if (p.markedForDeletion) break;
             const dist = Math.hypot(p.x - e.x, p.y - e.y);
             if (dist < p.radius + e.radius) {
-                e.hp -= p.damage;
-                p.penetration--;
-                if (p.penetration <= 0) {
-                    p.markedForDeletion = true;
-                    createExplosion(p.x, p.y, 40, p.fluidType, solver, particlesRef.current);
-                }
+                if (p.hitMap && p.hitMap[e.id] && gameTimeRef.current < p.hitMap[e.id]) continue;
                 
-                // Knockback (Bosses resist it)
-                if (e.type !== 'boss') {
-                    e.x += p.vx * 1.5; // Impulse knockback is distance based, mostly ok without tick for immediate impact
-                    e.y += p.vy * 1.5;
+                e.hp -= p.damage;
+                if (!p.hitMap) p.hitMap = {};
+                p.hitMap[e.id] = gameTimeRef.current + (isOrb ? 0.4 : 0.2); // cooldown per hit
+                
+                if (!isOrb) {
+                    p.penetration--;
+                    if (p.penetration <= 0) {
+                        p.markedForDeletion = true;
+                        createExplosion(p.x, p.y, 40, p.fluidType, solver, particlesRef.current);
+                    }
+                    
+                    // Knockback (Bosses resist it)
+                    if (e.type !== 'boss') {
+                        e.x += p.vx * 1.5; // Impulse knockback is distance based, mostly ok without tick for immediate impact
+                        e.y += p.vy * 1.5;
+                    }
                 }
             }
         }

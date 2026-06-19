@@ -46,6 +46,7 @@ export interface Projectile extends Entity {
   fluidType: FluidType;
   fluidIntensity: number;
   penetration: number;
+  hitMap?: Record<string, number>;
 }
 
 export interface XPGem extends Entity {
